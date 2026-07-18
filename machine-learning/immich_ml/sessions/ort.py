@@ -45,6 +45,31 @@ def _migraphx_input_signature(
     return tuple((name, str(value.dtype), tuple(value.shape)) for name, value in sorted(input_feed.items()))
 
 
+class _MigraphxSerializedSession(ort.InferenceSession):
+    # Serializes the first compile of each new input shape for this model.
+    # This lives on the session itself (rather than a wrapper) so the lock still
+    # applies when the raw session is handed to third-party code that calls
+    # .run() directly, bypassing OrtSession (e.g. RapidOCR's OCR models).
+    _model_key: str
+
+    def run(
+        self,
+        output_names: list[str] | None,
+        input_feed: dict[str, NDArray[np.float32]] | dict[str, NDArray[np.int32]],
+        run_options: Any = None,
+    ) -> list[NDArray[np.float32]]:
+        input_key = (self._model_key, _migraphx_input_signature(input_feed))
+        if not _migraphx_has_compiled_input(input_key):
+            with _migraphx_get_model_lock(self._model_key):
+                if not _migraphx_has_compiled_input(input_key):
+                    outputs: list[NDArray[np.float32]] = super().run(output_names, input_feed, run_options)
+                    _migraphx_mark_compiled_input(input_key)
+                    return outputs
+
+        outputs = super().run(output_names, input_feed, run_options)
+        return outputs
+
+
 class OrtSession:
     session: ort.InferenceSession
 
@@ -59,12 +84,15 @@ class OrtSession:
         self.providers = providers if providers is not None else self._providers_default
         self.provider_options = provider_options if provider_options is not None else self._provider_options_default
         self.sess_options = sess_options if sess_options is not None else self._sess_options_default
-        self.session = ort.InferenceSession(
+        session_cls = _MigraphxSerializedSession if "MIGraphXExecutionProvider" in self.providers else ort.InferenceSession
+        self.session = session_cls(
             self.model_path.as_posix(),
             providers=self.providers,
             provider_options=self.provider_options,
             sess_options=self.sess_options,
         )
+        if isinstance(self.session, _MigraphxSerializedSession):
+            self.session._model_key = self.model_path.resolve().as_posix()
 
     def get_inputs(self) -> list[SessionNode]:
         inputs: list[SessionNode] = self.session.get_inputs()
@@ -80,21 +108,7 @@ class OrtSession:
         input_feed: dict[str, NDArray[np.float32]] | dict[str, NDArray[np.int32]],
         run_options: Any = None,
     ) -> list[NDArray[np.float32]]:
-        if "MIGraphXExecutionProvider" in self.providers:
-            model_key = self.model_path.resolve().as_posix()
-            input_key = (model_key, _migraphx_input_signature(input_feed))
-            if not _migraphx_has_compiled_input(input_key):
-                model_lock = _migraphx_get_model_lock(model_key)
-                with model_lock:
-                    if not _migraphx_has_compiled_input(input_key):
-                        outputs: list[NDArray[np.float32]] = self.session.run(output_names, input_feed, run_options)
-                        _migraphx_mark_compiled_input(input_key)
-                        return outputs
-
-            outputs = self.session.run(output_names, input_feed, run_options)
-            return outputs
-
-        outputs = self.session.run(output_names, input_feed, run_options)
+        outputs: list[NDArray[np.float32]] = self.session.run(output_names, input_feed, run_options)
         return outputs
 
     @property
