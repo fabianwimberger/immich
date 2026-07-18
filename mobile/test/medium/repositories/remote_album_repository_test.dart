@@ -17,6 +17,121 @@ void main() {
     await ctx.dispose();
   });
 
+  group('addAssets', () {
+    test('sets the first added asset as thumbnail when the album has no thumbnail', () async {
+      final user = await ctx.newUser();
+      final album = await ctx.newRemoteAlbum(ownerId: user.id);
+      final asset = await ctx.newRemoteAsset(ownerId: user.id);
+
+      await sut.addAssets(album.id, [asset.id]);
+
+      final updated = await sut.get(album.id);
+      expect(updated?.thumbnailAssetId, asset.id);
+      expect(updated?.assetCount, 1);
+    });
+
+    test('preserves an existing thumbnail when adding assets', () async {
+      final user = await ctx.newUser();
+      final thumbnail = await ctx.newRemoteAsset(ownerId: user.id);
+      final album = await ctx.newRemoteAlbum(ownerId: user.id, thumbnailAssetId: thumbnail.id);
+      final asset = await ctx.newRemoteAsset(ownerId: user.id);
+
+      await sut.addAssets(album.id, [asset.id]);
+
+      final updated = await sut.get(album.id);
+      expect(updated?.thumbnailAssetId, thumbnail.id);
+      expect(updated?.assetCount, 1);
+    });
+  });
+
+  group('getAll', () {
+    test('returns album when all of its assets are trashed', () async {
+      final user = await ctx.newUser();
+      final album = await ctx.newRemoteAlbum(ownerId: user.id);
+      final asset1 = await ctx.newRemoteAsset(ownerId: user.id, deletedAt: DateTime(2025, 1, 1));
+      final asset2 = await ctx.newRemoteAsset(ownerId: user.id, deletedAt: DateTime(2025, 1, 1));
+      await ctx.newRemoteAlbumAsset(albumId: album.id, assetId: asset1.id);
+      await ctx.newRemoteAlbumAsset(albumId: album.id, assetId: asset2.id);
+
+      final albums = await sut.getAll();
+
+      expect(albums, hasLength(1));
+      expect(albums.first.id, album.id);
+      expect(albums.first.assetCount, 0);
+    });
+
+    test('excludes trashed assets from assetCount', () async {
+      final user = await ctx.newUser();
+      final album = await ctx.newRemoteAlbum(ownerId: user.id);
+      final active1 = await ctx.newRemoteAsset(ownerId: user.id);
+      final active2 = await ctx.newRemoteAsset(ownerId: user.id);
+      final trashed = await ctx.newRemoteAsset(ownerId: user.id, deletedAt: DateTime(2025, 1, 1));
+      await ctx.newRemoteAlbumAsset(albumId: album.id, assetId: active1.id);
+      await ctx.newRemoteAlbumAsset(albumId: album.id, assetId: active2.id);
+      await ctx.newRemoteAlbumAsset(albumId: album.id, assetId: trashed.id);
+
+      final albums = await sut.getAll();
+
+      expect(albums, hasLength(1));
+      expect(albums.first.assetCount, 2);
+    });
+
+    test('returns album without assets', () async {
+      final user = await ctx.newUser();
+      final album = await ctx.newRemoteAlbum(ownerId: user.id);
+
+      final albums = await sut.getAll();
+
+      expect(albums, hasLength(1));
+      expect(albums.first.id, album.id);
+      expect(albums.first.assetCount, 0);
+    });
+  });
+
+  group('get', () {
+    test('returns the album when all of its assets are trashed', () async {
+      final user = await ctx.newUser();
+      final album = await ctx.newRemoteAlbum(ownerId: user.id);
+      final asset = await ctx.newRemoteAsset(ownerId: user.id, deletedAt: DateTime(2025, 1, 1));
+      await ctx.newRemoteAlbumAsset(albumId: album.id, assetId: asset.id);
+
+      final result = await sut.get(album.id);
+
+      expect(result, isNotNull);
+      expect(result?.id, album.id);
+      expect(result?.assetCount, 0);
+    });
+  });
+
+  group('getAlbumsContainingAsset', () {
+    test('excludes trashed assets from assetCount', () async {
+      final user = await ctx.newUser();
+      final album = await ctx.newRemoteAlbum(ownerId: user.id);
+      final asset = await ctx.newRemoteAsset(ownerId: user.id);
+      final trashed = await ctx.newRemoteAsset(ownerId: user.id, deletedAt: DateTime(2025, 1, 1));
+      await ctx.newRemoteAlbumAsset(albumId: album.id, assetId: asset.id);
+      await ctx.newRemoteAlbumAsset(albumId: album.id, assetId: trashed.id);
+
+      final albums = await sut.getAlbumsContainingAsset(asset.id);
+
+      expect(albums, hasLength(1));
+      expect(albums.first.id, album.id);
+      expect(albums.first.assetCount, 1);
+    });
+
+    test('returns albums for a trashed asset', () async {
+      final user = await ctx.newUser();
+      final album = await ctx.newRemoteAlbum(ownerId: user.id);
+      final trashed = await ctx.newRemoteAsset(ownerId: user.id, deletedAt: DateTime(2025, 1, 1));
+      await ctx.newRemoteAlbumAsset(albumId: album.id, assetId: trashed.id);
+
+      final albums = await sut.getAlbumsContainingAsset(trashed.id);
+
+      expect(albums, hasLength(1));
+      expect(albums.first.assetCount, 0);
+    });
+  });
+
   group('getSortedAlbumIds', () {
     late String userId;
 

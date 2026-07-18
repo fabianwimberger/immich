@@ -110,9 +110,6 @@ class _FixedSegmentRow extends ConsumerWidget {
     final timelineService = ref.read(timelineServiceProvider);
     final isDynamicLayout = columnCount <= (context.isMobile ? 2 : 3);
 
-    if (isScrubbing) {
-      return _buildPlaceholder(context);
-    }
     if (timelineService.hasRange(assetIndex, assetCount)) {
       return _buildAssetRow(
         context,
@@ -120,6 +117,10 @@ class _FixedSegmentRow extends ConsumerWidget {
         timelineService,
         isDynamicLayout,
       );
+    }
+
+    if (isScrubbing) {
+      return _buildPlaceholder(context);
     }
 
     return FutureBuilder<List<BaseAsset>>(
@@ -242,7 +243,11 @@ class _AssetTileWidget extends ConsumerWidget {
       return false;
     }
 
-    return lockSelectionAssets.contains(asset);
+    // Iterate with `==` instead of `Set.contains` because `RemoteAsset.hashCode`
+    // includes `localId` while `==` does not — so the same server asset can
+    // hash to a different bucket when its `localId` differs (e.g., album-fetched
+    // copy has localId=null, merged-timeline copy has it populated).
+    return lockSelectionAssets.any((a) => a == asset);
   }
 
   @override

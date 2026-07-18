@@ -243,14 +243,16 @@ const getEnv = (): EnvData => {
       };
 
   let vectorExtension: VectorExtension | undefined;
-  switch (dto.DB_VECTOR_EXTENSION) {
-    case 'pgvector': {
-      vectorExtension = DatabaseExtension.Vector;
-      break;
-    }
-    case 'vectorchord': {
-      vectorExtension = DatabaseExtension.VectorChord;
-      break;
+  if (dto.DB_VECTOR_EXTENSION) {
+    switch (dto.DB_VECTOR_EXTENSION) {
+      case 'pgvector': {
+        vectorExtension = DatabaseExtension.Vector;
+        break;
+      }
+      case 'vectorchord': {
+        vectorExtension = DatabaseExtension.VectorChord;
+        break;
+      }
     }
   }
 
@@ -346,7 +348,7 @@ const getEnv = (): EnvData => {
         root: folders.web,
         indexHtml: join(folders.web, 'index.html'),
       },
-      corePlugin: join(buildFolder, 'corePlugin'),
+      corePlugin: join(buildFolder, 'plugins', 'immich-plugin-core'),
     },
 
     setup: {
