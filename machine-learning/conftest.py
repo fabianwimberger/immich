@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 from typing import Any, Iterator
 from unittest import mock
 
@@ -127,6 +128,24 @@ def ov_device_ids(request: pytest.FixtureRequest, ort_pybind: mock.Mock) -> Iter
 def ort_session() -> Iterator[mock.Mock]:
     with mock.patch("immich_ml.sessions.ort.ort.InferenceSession") as mocked:
         yield mocked
+
+
+@pytest.fixture(scope="function")
+def migraphx_session() -> Iterator[SimpleNamespace]:
+    # _MigraphxSerializedSession subclasses the real ort.InferenceSession at import time (it has
+    # to, so isinstance(session, ort.InferenceSession) checks in third-party code like RapidOCR still
+    # pass), so patching the `ort.InferenceSession` name via the `ort_session` fixture above doesn't
+    # reach it. Patch the real base class it's actually anchored to instead.
+    from immich_ml.sessions.ort import _MigraphxSerializedSession
+
+    real_base = _MigraphxSerializedSession.__bases__[0]
+    with (
+        mock.patch.object(real_base, "__init__", return_value=None),
+        mock.patch.object(real_base, "run") as run_mock,
+        mock.patch.object(real_base, "get_inputs") as get_inputs_mock,
+        mock.patch.object(real_base, "get_outputs") as get_outputs_mock,
+    ):
+        yield SimpleNamespace(run=run_mock, get_inputs=get_inputs_mock, get_outputs=get_outputs_mock)
 
 
 @pytest.fixture(scope="function")

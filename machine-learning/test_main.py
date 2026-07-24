@@ -247,7 +247,7 @@ class TestOrtSession:
         assert session.providers == self.CUDA_EP
 
     @pytest.mark.providers(ROCM_EP)
-    def test_uses_rocm(self, providers: list[str]) -> None:
+    def test_uses_rocm(self, providers: list[str], migraphx_session: SimpleNamespace) -> None:
         session = OrtSession("ViT-B-32__openai")
 
         assert session.providers == self.ROCM_EP
@@ -330,7 +330,7 @@ class TestOrtSession:
 
         assert session.provider_options == [{"arena_extend_strategy": "kSameAsRequested", "device_id": "1"}]
 
-    def test_sets_provider_options_for_rocm(self, mocker: MockerFixture) -> None:
+    def test_sets_provider_options_for_rocm(self, migraphx_session: SimpleNamespace, mocker: MockerFixture) -> None:
         model_path = "/cache/ViT-B-32__openai/textual/model.onnx"
         os.environ["MACHINE_LEARNING_DEVICE_ID"] = "1"
         mkdir = mocker.patch("immich_ml.sessions.ort.Path.mkdir")
@@ -346,7 +346,9 @@ class TestOrtSession:
         ]
         mkdir.assert_called_once_with(parents=True, exist_ok=True)
 
-    def test_sets_rocm_to_fp16_if_enabled(self, path: mock.Mock, mocker: MockerFixture) -> None:
+    def test_sets_rocm_to_fp16_if_enabled(
+        self, migraphx_session: SimpleNamespace, path: mock.Mock, mocker: MockerFixture
+    ) -> None:
         model_path = "/cache/ViT-B-32__openai/textual/model.onnx"
         os.environ["MACHINE_LEARNING_DEVICE_ID"] = "1"
         mocker.patch.object(settings, "rocm_precision", ModelPrecision.FP16)
@@ -443,7 +445,9 @@ class TestOrtSession:
 
         assert sess_options is session.sess_options
 
-    def test_serializes_rocm_first_run_for_new_input_signature(self, mocker: MockerFixture) -> None:
+    def test_serializes_rocm_first_run_for_new_input_signature(
+        self, migraphx_session: SimpleNamespace, mocker: MockerFixture
+    ) -> None:
         lock = FakeLock()
         get_model_lock = mocker.patch("immich_ml.sessions.ort._migraphx_get_model_lock", return_value=lock)
         mocker.patch("immich_ml.sessions.ort._migraphx_compiled_inputs", set())
@@ -457,9 +461,11 @@ class TestOrtSession:
         lock.enter.assert_called_once()
         lock.exit.assert_called_once()
         get_model_lock.assert_called_once()
-        session.session.run.assert_has_calls([mock.call(None, input_feed, None), mock.call(None, input_feed, None)])
+        migraphx_session.run.assert_has_calls([mock.call(None, input_feed, None), mock.call(None, input_feed, None)])
 
-    def test_serializes_rocm_run_for_each_new_input_signature(self, mocker: MockerFixture) -> None:
+    def test_serializes_rocm_run_for_each_new_input_signature(
+        self, migraphx_session: SimpleNamespace, mocker: MockerFixture
+    ) -> None:
         lock = FakeLock()
         mocker.patch("immich_ml.sessions.ort._migraphx_get_model_lock", return_value=lock)
         mocker.patch("immich_ml.sessions.ort._migraphx_compiled_inputs", set())
@@ -473,7 +479,7 @@ class TestOrtSession:
 
         assert lock.enter.call_count == 2
         assert lock.exit.call_count == 2
-        session.session.run.assert_has_calls(
+        migraphx_session.run.assert_has_calls(
             [mock.call(None, input_feed, None), mock.call(None, new_shape_input_feed, None)]
         )
 
@@ -972,7 +978,7 @@ class TestFaceRecognition:
         onnx.save.assert_not_called()
 
     def test_recognition_does_not_add_batch_axis_for_migraphx(
-        self, ort_session: mock.Mock, path: mock.Mock, mocker: MockerFixture
+        self, migraphx_session: SimpleNamespace, path: mock.Mock, mocker: MockerFixture
     ) -> None:
         onnx = mocker.patch("immich_ml.models.facial_recognition.recognition.onnx", autospec=True)
         update_dims = mocker.patch(
@@ -988,8 +994,8 @@ class TestFaceRecognition:
 
         inputs = [SimpleNamespace(name="input.1", shape=(1, 3, 224, 224))]
         outputs = [SimpleNamespace(name="output.1", shape=(1, 800))]
-        ort_session.return_value.get_inputs.return_value = inputs
-        ort_session.return_value.get_outputs.return_value = outputs
+        migraphx_session.get_inputs.return_value = inputs
+        migraphx_session.get_outputs.return_value = outputs
 
         face_recognizer = FaceRecognizer("buffalo_s", cache_dir=path)
         face_recognizer.load()
@@ -1045,10 +1051,10 @@ class TestOcr:
 
         rapid_recognizer.assert_called_once_with(
             OcrOptions(
-              session=ort_session.return_value,
-              rec_batch_num=6,
-              rec_img_shape=(3, 48, 320),
-              model_root_dir=text_recognizer.cache_dir,
+                session=ort_session.return_value,
+                rec_batch_num=6,
+                rec_img_shape=(3, 48, 320),
+                model_root_dir=text_recognizer.cache_dir,
             )
         )
 
@@ -1063,10 +1069,10 @@ class TestOcr:
 
         rapid_recognizer.assert_called_once_with(
             OcrOptions(
-              session=ort_session.return_value,
-              rec_batch_num=4,
-              rec_img_shape=(3, 48, 320),
-              model_root_dir=text_recognizer.cache_dir,
+                session=ort_session.return_value,
+                rec_batch_num=4,
+                rec_img_shape=(3, 48, 320),
+                model_root_dir=text_recognizer.cache_dir,
             )
         )
 
@@ -1083,10 +1089,10 @@ class TestOcr:
 
         rapid_recognizer.assert_called_once_with(
             OcrOptions(
-              session=ort_session.return_value,
-              rec_batch_num=6,
-              rec_img_shape=(3, 48, 320),
-              model_root_dir=text_recognizer.cache_dir,
+                session=ort_session.return_value,
+                rec_batch_num=6,
+                rec_img_shape=(3, 48, 320),
+                model_root_dir=text_recognizer.cache_dir,
             )
         )
 

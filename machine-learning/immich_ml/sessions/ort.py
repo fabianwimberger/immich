@@ -84,7 +84,8 @@ class OrtSession:
         self.providers = providers if providers is not None else self._providers_default
         self.provider_options = provider_options if provider_options is not None else self._provider_options_default
         self.sess_options = sess_options if sess_options is not None else self._sess_options_default
-        session_cls = _MigraphxSerializedSession if "MIGraphXExecutionProvider" in self.providers else ort.InferenceSession
+        uses_migraphx = "MIGraphXExecutionProvider" in self.providers
+        session_cls = _MigraphxSerializedSession if uses_migraphx else ort.InferenceSession
         self.session = session_cls(
             self.model_path.as_posix(),
             providers=self.providers,
