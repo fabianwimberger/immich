@@ -16,17 +16,8 @@ from ..config import log, settings
 MigraphxInputSignature = tuple[tuple[str, str, tuple[int, ...]], ...]
 
 _migraphx_registry_lock = Lock()
-_migraphx_model_locks: dict[str, Lock] = {}
+_migraphx_compile_lock = Lock()
 _migraphx_compiled_inputs: set[tuple[str, MigraphxInputSignature]] = set()
-
-
-def _migraphx_get_model_lock(model_key: str) -> Lock:
-    with _migraphx_registry_lock:
-        lock = _migraphx_model_locks.get(model_key)
-        if lock is None:
-            lock = Lock()
-            _migraphx_model_locks[model_key] = lock
-        return lock
 
 
 def _migraphx_has_compiled_input(key: tuple[str, MigraphxInputSignature]) -> bool:
@@ -46,10 +37,12 @@ def _migraphx_input_signature(
 
 
 class _MigraphxSerializedSession(ort.InferenceSession):
-    # Serializes the first compile of each new input shape for this model.
-    # This lives on the session itself (rather than a wrapper) so the lock still
-    # applies when the raw session is handed to third-party code that calls
-    # .run() directly, bypassing OrtSession (e.g. RapidOCR's OCR models).
+    # Serializes the first compile of each new input shape, across every MIGraphX-backed
+    # session process-wide (not just this model) - concurrent first-compiles of two
+    # different models were reproducibly racing on some hardware even though each model's
+    # own compiles were already serialized. This lives on the session itself (rather than
+    # a wrapper) so the lock still applies when the raw session is handed to third-party
+    # code that calls .run() directly, bypassing OrtSession (e.g. RapidOCR's OCR models).
     _model_key: str
 
     def run(
@@ -60,7 +53,7 @@ class _MigraphxSerializedSession(ort.InferenceSession):
     ) -> list[NDArray[np.float32]]:
         input_key = (self._model_key, _migraphx_input_signature(input_feed))
         if not _migraphx_has_compiled_input(input_key):
-            with _migraphx_get_model_lock(self._model_key):
+            with _migraphx_compile_lock:
                 if not _migraphx_has_compiled_input(input_key):
                     outputs: list[NDArray[np.float32]] = super().run(output_names, input_feed, run_options)
                     _migraphx_mark_compiled_input(input_key)
